@@ -47,26 +47,38 @@ def download_file(url, filename):
     with open(filename, 'wb') as f:
         f.write(r.content)
 
+import os
+import subprocess
+import sys
+
 def clone_repo(repo_url):
-    # TODO
-    raise NotImplementedError
+    # Skip the clone if the repo is already here (e.g. from a previous run),
+    # since git refuses to clone into an existing folder.
+    repo_dir = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+    if not os.path.isdir(repo_dir):
+        subprocess.run(["git", "clone", repo_url], check=True)
 
 def run_script(script_path, data_path):
-    # TODO
-    raise NotImplementedError
+    # sys.executable = the same Python running this file, so this works
+    # whether Python is called "python3", "python", or something else.
+    subprocess.run([sys.executable, script_path, data_path], check=True)
 
 def setup(repo_url, data_url, script_path):
-    # TODO
-    raise NotImplementedError
+    data_path = "data/" + data_url.split("/")[-1]
+    clone_repo(repo_url)
+    download_file(data_url, data_path)
+    run_script(script_path, data_path)
 
 def q1():
     # Call setup as described in the prompt
-    # TODO
-    # Read the file test-output.txt to a string
-    # TODO
-    # Return the integer value of the output
-    # TODO
-    raise NotImplementedError
+    setup(
+        "https://github.com/DavisPL-Teaching/119-hw1",
+        "https://raw.githubusercontent.com/DavisPL-Teaching/119-hw1/refs/heads/main/data/test-input.txt",
+        "test-script.py"
+    )
+    with open("output/test-output.txt") as f:
+        output = f.read()
+    return int(output)
 
 """
 2.
@@ -78,13 +90,29 @@ a. When might you need to use a script like setup() above in
 this scenario?
 
 === ANSWER Q2a BELOW ===
-
+Every two weeks when we need to refresh the analysis. Instead of each of
+the 5 of us manually pulling the latest code, downloading the newest data
+by hand, and running the scripts (and maybe getting different versions of
+things), one setup() script does it the same way every time. It's also
+useful when someone new joins the team or gets a new laptop, when we need
+to re-run an old analysis from scratch to check a result, or if we want to
+run it automatically on a server instead of on someone's machine.
 === END OF Q2a ANSWER ===
 
 Do you see an alternative to using a script like setup()?
 
 === ANSWER Q2b BELOW ===
-
+A few options:
+- Schedule it: have a cron job or a GitHub Actions workflow run the
+  pipeline every two weeks automatically, so no one has to remember.
+- Use a container (a Docker image) with the code and dependencies already
+  installed, so everyone runs the exact same environment.
+- Use a workflow/pipeline tool (like Make, Airflow, or DVC) that knows the
+  steps and their dependencies and only re-runs what changed.
+- Keep the data in a shared database or cloud storage bucket instead of
+  having everyone download their own copy.
+- Or just do it manually with a written checklist. That works for a small
+  team, but it's easy to make mistakes.
 === END OF Q2b ANSWER ===
 
 3.
@@ -125,17 +153,28 @@ any packages?
 """
 
 def setup_for_new_machine():
-    # TODO
-    raise NotImplementedError
+    """
+    Set up a brand-new Windows machine that only has Python 3.12 and pip.
+    Not run as part of the pipeline (it installs software).
+    """
+    # Git is needed to clone the repo. Git for Windows also comes with the
+    # Unix shell tools (cat, tail, wc) used by pipeline_shell() below.
+    subprocess.run(["winget", "install", "--id", "Git.Git", "-e", "--source", "winget"], check=True)
+
+    # Python packages imported in parts 1-3 (everything else is built in)
+    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=True)
+    subprocess.run([sys.executable, "-m", "pip", "install",
+                    "pandas", "numpy", "matplotlib", "pytest", "requests"], check=True)
+
+    # Get the homework code and data
+    subprocess.run(["git", "clone", "https://github.com/DavisPL-Teaching/119-hw1"], check=True)
 
 def q3():
     # As your answer, return a string containing
     # the operating system name that you assumed the
     # new machine to have.
-    # TODO
-    raise NotImplementedError
-    # os =
-    return os
+    os_name = "Windows"
+    return os_name
 
 """
 4. This question is open ended :)
@@ -147,7 +186,13 @@ scripts like setup() and setup_for_new_machine()
 in their day-to-day jobs?
 
 === ANSWER Q4 BELOW ===
-
+My guess is around 10-20% of their time. Most of the job is probably
+analysis, cleaning data, and meetings, but setup and environment problems
+come up all the time: new projects, new team members, broken dependencies,
+moving work onto cloud machines. At bigger companies there are often
+platform/DevOps teams that handle a lot of this, so a data scientist might
+spend less time writing these scripts themselves, but they still have to
+use and fix them.
 === END OF Q4 ANSWER ===
 
 5.
@@ -164,7 +209,24 @@ If you don't have a friend's machine, please speculate about
 what might happen if you tried. You can guess.
 
 === ANSWER Q5 BELOW ===
-
+I didn't run it on a friend's machine, so this is a guess.
+Things that would probably go wrong:
+- winget might not be there or might need admin approval, so Git
+  wouldn't install. Even if it did, the current terminal wouldn't see
+  the new `git` command until it's restarted (PATH isn't updated), so the
+  git clone step would fail on the first run.
+- If my friend has a Mac or Linux, the winget line fails right away.
+  The script assumes Windows.
+- pip might install into a different Python than the one they actually
+  use, or fail with a permissions error if it's a system-wide Python
+  (a virtual environment would avoid that).
+- I don't pin package versions, so they might get newer versions of
+  pandas/matplotlib where something I use is deprecated or changed. (I
+  actually hit a deprecation warning for boxplot's `labels` argument
+  while doing part 1.)
+- The shell pipeline in Q6 needs cat/tail/wc. On Windows those only exist
+  if Git Bash's tools are on the PATH, so plain PowerShell/cmd wouldn't
+  find them.
 === END OF Q5 ANSWER ===
 
 ===== Questions 6-9: A comparison of shell vs. Python =====
@@ -220,21 +282,24 @@ with:
 .
 """
 
+POPULATION_FILE = "data/population.csv"
+
 def pipeline_shell():
-    # TODO
-    raise NotImplementedError
-    # Return resulting integer
+    # Skip the header line, then count the remaining lines
+    output = os.popen(f"cat {POPULATION_FILE} | tail -n +2 | wc -l").read()
+    return int(output)
 
 def pipeline_pandas():
-    # TODO
-    raise NotImplementedError
-    # Return resulting integer
+    df = pd.read_csv(POPULATION_FILE)
+    return len(df)
 
 def q6():
     # As your answer to this part, check that both
     # integers are the same and return one of them.
-    # TODO
-    raise NotImplementedError
+    shell_rows = pipeline_shell()
+    pandas_rows = pipeline_pandas()
+    assert shell_rows == pandas_rows, f"shell: {shell_rows}, pandas: {pandas_rows}"
+    return shell_rows
 
 """
 Let's do a performance comparison between the two methods.
@@ -252,8 +317,13 @@ def q7():
     # Return a list of two floats
     # [throughput for shell, throughput for pandas]
     # (in rows per second)
-    # TODO
-    raise NotImplementedError
+    num_rows = pipeline_pandas()
+    h = part2.ThroughputHelper()
+    h.add_pipeline("shell", num_rows, pipeline_shell)
+    h.add_pipeline("pandas", num_rows, pipeline_pandas)
+    throughputs = h.compare_throughput()
+    h.generate_plot("output/part3-q7.png")
+    return throughputs
 
 """
 8. Latency
@@ -271,17 +341,54 @@ def q8():
     # Return a list of two floats
     # [latency for shell, latency for pandas]
     # (in milliseconds)
-    # TODO
-    raise NotImplementedError
+    # As allowed for this question, latency is measured on the full pipeline.
+    h = part2.LatencyHelper()
+    h.add_pipeline("shell", pipeline_shell)
+    h.add_pipeline("pandas", pipeline_pandas)
+    latencies = h.compare_latency()
+    h.generate_plot("output/part3-q8.png")
+    return latencies
 
 """
 9. Which method is faster?
 Comment on anything else you notice below.
 
 === ANSWER Q9 BELOW ===
+On my machine (Windows), Pandas was faster: about 1.7 million rows/s vs
+about 0.6 million rows/s for the shell, and about 35 ms vs 100 ms latency.
+I didn't expect that, since `wc -l` just counts newlines and doesn't parse
+anything, while Pandas actually parses every row into a DataFrame.
 
+To see why, I timed a few commands. Just running `echo hi` through
+os.popen takes ~34 ms, `wc -l` on the file takes ~67 ms, and the full
+`cat | tail | wc` takes ~100 ms. So each extra process in the pipe adds
+about 30 ms, and almost all the shell's time is spent starting processes
+(cmd.exe, then Git for Windows' versions of cat/tail/wc, which are slow
+to start), not reading the file. Pandas runs inside the Python process
+that's already open, so it has no startup cost.
+
+Other things I noticed:
+- `cat file | tail` is redundant. `tail -n +2 file | wc -l` (or just
+  `wc -l` minus 1) does the same thing with fewer processes, and that
+  should be faster.
+- On Linux/Mac, where starting a process is much cheaper, I'd expect the
+  shell version to win, especially on bigger files, because it streams
+  the file and never stores it in memory.
+- The shell version also depends on the file ending with a newline and
+  on cat/tail/wc being installed, so the Pandas version is more portable
+  even though it does more work.
 === END OF Q9 ANSWER ===
 """
+
+"""
+Unit tests: run with `pytest part3.py`.
+"""
+
+def test_pipeline_pandas():
+    assert pipeline_pandas() == 59177
+
+def test_shell_matches_pandas():
+    assert pipeline_shell() == pipeline_pandas()
 
 """
 ===== Wrapping things up =====
